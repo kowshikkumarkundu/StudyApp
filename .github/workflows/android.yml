@@ -3,10 +3,7 @@ name: StudyFlow Android Build
 
 on:
   push:
-    branches:
-      - main
-      - master
-  pull_request:
+    branches: [main, master]
   workflow_dispatch:
 
 permissions:
@@ -14,42 +11,64 @@ permissions:
 
 jobs:
   build:
-    name: Build StudyFlow APK
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Java 17
+      - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
+      - name: Find and Extract ZIP
+        run: |
+          ZIP_FILE=$(find . -maxdepth 1 -type f -iname "*.zip" | head -n 1)
+
+          if [ -z "$ZIP_FILE" ]; then
+            echo "No ZIP file found in repository root"
+            exit 1
+          fi
+
+          mkdir -p extracted
+          unzip -oq "$ZIP_FILE" -d extracted
+
+          GRADLEW=$(find extracted -type f -name gradlew | head -n 1)
+
+          if [ -z "$GRADLEW" ]; then
+            echo "gradlew not found inside ZIP"
+            find extracted -maxdepth 3 -type f | head -50
+            exit 1
+          fi
+
+          PROJECT_DIR=$(dirname "$GRADLEW")
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+
+          echo "Project found: $PROJECT_DIR"
+
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Grant Execute Permission
-        run: chmod +x gradlew
+      - name: Grant Permission
+        run: |
+          cd "$PROJECT_DIR"
+          chmod +x gradlew
 
-      - name: Run Unit Tests
-        run: ./gradlew testDebugUnitTest --stacktrace
+      - name: Run Tests
+        run: |
+          cd "$PROJECT_DIR"
+          ./gradlew testDebugUnitTest --stacktrace
 
-      - name: Build Debug APK
-        run: ./gradlew assembleDebug --stacktrace
+      - name: Build APK
+        run: |
+          cd "$PROJECT_DIR"
+          ./gradlew assembleDebug --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: StudyFlow-APK
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: extracted/**/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
-
-      - name: Upload Test Reports
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: StudyFlow-Test-Reports
-          path: app/build/reports/tests/testDebugUnitTest/
-          if-no-files-found: ignore
